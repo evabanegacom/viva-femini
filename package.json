@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "VívaFemme Menstrual Health Tracking API",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "nest build",
     "start": "ts-node -r tsconfig-paths/register src/main.ts",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts --watch",
     "start:prod": "node dist/main",
