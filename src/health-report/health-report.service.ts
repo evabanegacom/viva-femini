@@ -137,89 +137,56 @@ export class HealthReportService {
     // ── 4. Historical Cycle Data table ───────────────────────────────────
     // UI shows: Date | Top Symptoms | Total Symptoms (score e.g. "8/10") | Note
     // Filtered by requested month if provided, otherwise all cycles
-    const filteredCycles = month
-      ? allCycles.filter(
-          (c) => c.label === month || c.startDate?.startsWith(month.slice(0, 7)),
-        )
-      : allCycles;
+   // Inside getReport() method — replace the historicalCycleData block
 
-    const historicalCycleData = await Promise.all(
-      filteredCycles.map(async (cycle) => {
-        const logs = await this.symptomsService.findByCycle(cycle._id?.toString());
+// ── 4. Historical Cycle Data table ───────────────────────────────────
+const filteredCycles = month
+  ? allCycles.filter((c) => c.label === month || c.startDate?.startsWith(month.slice(0, 7)))
+  : allCycles;
 
-        // Count all symptoms across every log in this cycle
-        const allSymptoms: string[] = [];
-        logs.forEach((l) => {
-          allSymptoms.push(...(l.physicalSymptoms ?? []));
-          allSymptoms.push(...(l.moodSymptoms ?? []));
-          allSymptoms.push(...(l.periodIndicators ?? []));
-          allSymptoms.push(...(l.sexualHealthSymptoms ?? []));
-        });
+const historicalCycleData = [];
 
-        // Tally to find the single most common symptom (Top Symptom column)
-        const symMap: Record<string, number> = {};
-        allSymptoms.forEach((s) => { symMap[s] = (symMap[s] ?? 0) + 1; });
-        const topSymptom =
-          Object.entries(symMap).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+for (const cycle of filteredCycles) {
+  const logs = await this.symptomsService.findByCycle(cycle._id?.toString());
 
-        // "Total Symptoms" shown as "X/10" — count of distinct symptom types / 10
-        const distinctCount = Object.keys(symMap).length;
-        const scoreOutOf10 = `${Math.min(distinctCount, 10)}/10`;
+  for (const log of logs) {
+    const logAllSymptoms = [
+      ...(log.physicalSymptoms ?? []),
+      ...(log.moodSymptoms ?? []),
+      ...(log.sexualHealthSymptoms ?? []),
+    ];
 
-        // Collect all notes (UI shows "After lunch" etc.)
-        const notes = logs
-          .map((l) => l.notes)
-          .filter(Boolean)
-          .join(', ') || null;
+    const symMap: Record<string, number> = {};
+    logAllSymptoms.forEach((s) => {
+      symMap[s] = (symMap[s] ?? 0) + 1;
+    });
 
-        // Per-day rows for the table (UI shows one row per logged day)
-        const tableRows = logs.map((log) => {
-          const logAllSymptoms = [
-            ...(log.physicalSymptoms ?? []),
-            ...(log.moodSymptoms ?? []),
-          ];
-          const logSymMap: Record<string, number> = {};
-          logAllSymptoms.forEach((s) => { logSymMap[s] = (logSymMap[s] ?? 0) + 1; });
-          const logTopSymptom =
-            Object.entries(logSymMap).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Physical Pain';
+    const topSymptom =
+      Object.entries(symMap).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Physical Pain';
 
-          const logDistinct = Object.keys(logSymMap).length;
+    const distinctCount = Object.keys(symMap).length;
 
-          return {
-            date: log.date,
-            topSymptom: logTopSymptom,
-            totalSymptomsScore: `${Math.min(logDistinct, 10)}/10`,
-            flowIntensity: log.flowIntensity ?? 0,
-            note: log.notes ?? null,
-          };
-        });
+    historicalCycleData.push({
+      date: log.date,
+      topSymptom,
+      totalSymptoms: `${Math.min(distinctCount, 10)}/10`,
+      note: log.notes ?? null,
+    });
+  }
+}
 
-        return {
-          cycleId: cycle._id?.toString(),
-          label: cycle.label,
-          startDate: cycle.startDate,
-          endDate: cycle.endDate,
-          cycleLength: cycle.cycleLength,
-          periodLength: cycle.periodLength,
-          topSymptom,
-          totalSymptomsScore: scoreOutOf10,
-          notes,
-          daysLogged: logs.length,
-          rows: tableRows,  // ← individual day rows for the data table
-        };
-      }),
-    );
-
+// Sort by date descending (newest first, like in the screenshot)
+historicalCycleData.sort((a, b) => b.date.localeCompare(a.date));
     // ── 5. Assemble final response ────────────────────────────────────────
     return {
-      userId,
-      reportMonth: targetCycle?.label ?? month ?? 'All time',
-      cycleSummary,
-      flowAndSymptomsSummary,
-      periodLengthChart,     // data points for the line chart
-      symptomFrequency,
-      historicalCycleData,
-    };
+  userId,
+  reportMonth: targetCycle?.label ?? month ?? 'All time',
+  cycleSummary,
+  flowAndSymptomsSummary,
+  periodLengthChart,           // for your line chart
+  symptomFrequency,
+  historicalCycleData,         // ← now flat array of rows
+};
   }
 
   // ── Date formatting helpers ──────────────────────────────────────────────
