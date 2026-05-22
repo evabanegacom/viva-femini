@@ -33,8 +33,7 @@ export type MoodSymptom =
   | 'Difficulty Concentrating';
 
 /** Period / flow indicators */
-export type PeriodIndicator = 'Spotting' | 'Heavier flow' | 'Lighter flow' | 'Vaginal dryness';
-
+export type PeriodIndicator = 'Spotting' | 'Heavier flow' | 'Lighter flow' | 'Vaginal Dryness';
 /** Sexual health symptoms */
 export type SexualHealthSymptom =
   | 'Increased sex drive'
@@ -78,7 +77,7 @@ export class SymptomLog {
   sexualHealthSymptoms: SexualHealthSymptom[];
 
   /** Flow intensity on a 0–10 scale (Light → Medium → Heavy) */
-  @Prop({ min: 0, max: 10, default: 0 })
+  @Prop({ type: Number, min: 0, max: 10, default: 0 })
   flowIntensity: FlowIntensity;
 
   /** Optional free-text note for the day */
