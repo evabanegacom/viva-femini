@@ -17,7 +17,7 @@
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
-    "ignoreDeprecations": "5.0"
-    // Remove the "types" line entirely
+    "ignoreDeprecations": "5.0",
+    "types": ["node"]
   }
 }
