@@ -13,13 +13,24 @@ import { SeedModule } from './seed/seed.module';
     ConfigModule.forRoot({ isGlobal: true }),
 
     // Connect to MongoDB using env variable; falls back to local dev DB
+    // MongooseModule.forRootAsync({
+    //   imports: [ConfigModule],
+    //   useFactory: (configService: ConfigService) => ({
+    //     uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/vivafemme'),
+    //   }),
+    //   inject: [ConfigService],
+    // }),
+
     MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/vivafemme'),
-      }),
-      inject: [ConfigService],
-    }),
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (configService: ConfigService) => {
+    return {
+      uri: configService.get<string>('MONGODB_URI') 
+        || 'mongodb://localhost:27017/vivafemme',
+    };
+  },
+}),
 
     // Feature modules
     UsersModule,
