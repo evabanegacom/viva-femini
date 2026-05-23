@@ -10,14 +10,35 @@ export class SymptomsService {
     @InjectModel(SymptomLog.name) private logModel: Model<SymptomLogDocument>,
   ) {}
 
-  /** Save a new daily symptom log */
+  /**
+   * Save or update a daily symptom log.
+   * Upserts by userId + date so submitting the tracking form twice
+   * (or seeding then logging manually) overwrites instead of throwing
+   * a duplicate key error on the userId_1_date_1 unique index.
+   */
   async create(dto: CreateSymptomLogDto): Promise<SymptomLogDocument> {
-    const log = new this.logModel({
-      ...dto,
-      userId: new Types.ObjectId(dto.userId),
-      cycleId: new Types.ObjectId(dto.cycleId),
-    });
-    return log.save();
+    const log = await this.logModel
+      .findOneAndUpdate(
+        {
+          userId: new Types.ObjectId(dto.userId),
+          date: dto.date,
+        },
+        {
+          $set: {
+            ...dto,
+            userId: new Types.ObjectId(dto.userId),
+            cycleId: new Types.ObjectId(dto.cycleId),
+          },
+        },
+        {
+          new: true,
+          upsert: true,
+          setDefaultsOnInsert: true,
+        },
+      )
+      .exec();
+
+    return log!;
   }
 
   /** Retrieve all logs for a user, sorted newest first */
@@ -37,7 +58,10 @@ export class SymptomsService {
   }
 
   /** Get the log for a specific date (for a user) */
-  async findByDate(userId: string, date: string): Promise<SymptomLogDocument | null> {
+  async findByDate(
+    userId: string,
+    date: string,
+  ): Promise<SymptomLogDocument | null> {
     return this.logModel
       .findOne({ userId: new Types.ObjectId(userId), date })
       .exec();
@@ -51,8 +75,13 @@ export class SymptomsService {
   }
 
   /** Update an existing daily log */
-  async update(id: string, dto: UpdateSymptomLogDto): Promise<SymptomLogDocument> {
-    const log = await this.logModel.findByIdAndUpdate(id, dto, { new: true }).exec();
+  async update(
+    id: string,
+    dto: UpdateSymptomLogDto,
+  ): Promise<SymptomLogDocument> {
+    const log = await this.logModel
+      .findByIdAndUpdate(id, dto, { new: true })
+      .exec();
     if (!log) throw new NotFoundException(`SymptomLog ${id} not found`);
     return log;
   }
@@ -70,7 +99,7 @@ export class SymptomsService {
    */
   async getFrequency(userId: string): Promise<Record<string, any>> {
     const logs = await this.findByUser(userId);
-    const total = logs.length || 1; // avoid division by zero
+    const total = logs.length || 1;
 
     const countMap: Record<string, number> = {};
 
@@ -87,7 +116,6 @@ export class SymptomsService {
       incrementSymptoms(log.sexualHealthSymptoms || []);
     });
 
-    // Convert to sorted array of { symptom, count, percentage }
     const symptoms = Object.entries(countMap)
       .map(([symptom, count]) => ({
         symptom,

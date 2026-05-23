@@ -6,16 +6,17 @@ import { Cycle, CycleDocument } from '../cycles/cycle.schema';
 import { SymptomLog, SymptomLogDocument } from '../symptoms/symptom-log.schema';
 
 /**
- * SeedService — populates MongoDB with data that matches the UI screenshots exactly.
+ * SeedService — generates realistic demo data anchored to the CURRENT date.
  *
- * Health Report screen shows:
- *  Cycle Summary: Cycle Length 29 Days | Period Duration 4 Days |
- *                 Estimated Next Period Nov 4 | Ovulation Window Oct 17–22
+ * Key fix: current cycle ALWAYS starts on day 1 of the CURRENT month,
+ * so the calendar label, startDate, and month all stay in sync.
  *
- *  Historical table has 12 rows, Oct 9th–18th, all "Physical Pain" as top symptom,
- *  scores like 8/10, 5/10, 7/10, etc., note "After lunch"
- *
- *  Donut chart values approx: Physical 55%, Mood 75%, Digestion 82%, Sexual 33%, Flow 20%
+ * Cycle timeline (May 2026 example):
+ *   startDate:           May  1  ← day 1 of current month
+ *   period ends:         May  4  ← start + periodLength - 1
+ *   ovulation starts:    May 12  ← start + 11
+ *   ovulation ends:      May 17  ← start + 16
+ *   next period:         May 30  ← start + cycleLength (29)
  */
 @Injectable()
 export class SeedService {
@@ -27,8 +28,52 @@ export class SeedService {
     @InjectModel(SymptomLog.name) private logModel: Model<SymptomLogDocument>,
   ) {}
 
+  // ── Date helpers ────────────────────────────────────────────────────────
+
+  private addDays(d: Date, n: number): Date {
+    const r = new Date(d);
+    r.setDate(r.getDate() + n);
+    return r;
+  }
+
+  /** Date → "YYYY-MM-DD" (local time, no UTC shift) */
+  private toISO(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** "2026-05-01" → "May 2026" */
+  private toMonthLabel(d: Date): string {
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  private pick<T>(arr: T[], n: number): T[] {
+    return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+  }
+
+  // ── Symptom pools ───────────────────────────────────────────────────────
+
+  private readonly PHYSICAL_HEAVY = [
+    'Cramps', 'Fatigue', 'Lower back pain', 'Nausea',
+    'Breast tenderness', 'Abdominal pain', 'Water retention', 'Headache',
+  ];
+  private readonly PHYSICAL_LIGHT = [
+    'Fatigue', 'Headache', 'Abdominal pain', 'Nausea', 'Breast tenderness',
+  ];
+  private readonly MOOD_HEAVY = [
+    'Irritability', 'Sad', 'Low Motivation', 'Mood swings',
+    'Tearfulness', 'Difficulty Concentrating',
+  ];
+  private readonly MOOD_LIGHT = [
+    'Neutral', 'Low Motivation', 'Difficulty Concentrating', 'Cravings',
+  ];
+
+  // ── Main seed ───────────────────────────────────────────────────────────
+
   async seed() {
-    this.logger.log('🌱 Starting database seed...');
+    this.logger.log('🌱 Starting dynamic seed anchored to today...');
 
     await Promise.all([
       this.userModel.deleteMany({}),
@@ -36,210 +81,182 @@ export class SeedService {
       this.logModel.deleteMany({}),
     ]);
 
-    // ── 1. User: Emmanuelle ──────────────────────────────────────────────
+    const CYCLE_LENGTH    = 29;
+    const PERIOD_LENGTH   = 4;
+    const OV_START_OFFSET = 11;  // days after period start
+    const OV_END_OFFSET   = 16;
+
+    // ── Anchor dates ────────────────────────────────────────────────────
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Current cycle: ALWAYS starts on the 1st of the current month
+    // This keeps startDate, label, and calendar month perfectly in sync
+    const currentCycleStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const currentPeriodEnd  = this.addDays(currentCycleStart, PERIOD_LENGTH - 1);
+    const currentOvStart    = this.addDays(currentCycleStart, OV_START_OFFSET);
+    const currentOvEnd      = this.addDays(currentCycleStart, OV_END_OFFSET);
+    const nextPeriodStart   = this.addDays(currentCycleStart, CYCLE_LENGTH);
+
+    // Previous cycle (one month back)
+    const prevCycleStart   = this.addDays(currentCycleStart, -CYCLE_LENGTH);
+    const prevPeriodEnd    = this.addDays(prevCycleStart, PERIOD_LENGTH - 1);
+    const prevOvStart      = this.addDays(prevCycleStart, OV_START_OFFSET);
+    const prevOvEnd        = this.addDays(prevCycleStart, OV_END_OFFSET);
+
+    // Two cycles back
+    const prev2CycleStart  = this.addDays(currentCycleStart, -CYCLE_LENGTH * 2);
+    const prev2PeriodEnd   = this.addDays(prev2CycleStart, PERIOD_LENGTH - 1);
+    const prev2OvStart     = this.addDays(prev2CycleStart, OV_START_OFFSET);
+    const prev2OvEnd       = this.addDays(prev2CycleStart, OV_END_OFFSET);
+
+    this.logger.log(`📅 Today:                ${this.toISO(today)}`);
+    this.logger.log(`📅 Current cycle starts: ${this.toISO(currentCycleStart)} (${this.toMonthLabel(currentCycleStart)})`);
+    this.logger.log(`💧 Period days:          ${this.toISO(currentCycleStart)} – ${this.toISO(currentPeriodEnd)}`);
+    this.logger.log(`🔵 Ovulation window:     ${this.toISO(currentOvStart)} – ${this.toISO(currentOvEnd)}`);
+    this.logger.log(`📅 Next period:          ${this.toISO(nextPeriodStart)}`);
+
+    // ── 1. User ─────────────────────────────────────────────────────────
     const user = await this.userModel.create({
       name: 'Emmanuelle',
       email: 'emmanuelle@vivafemme.app',
-      averageCycleLength: 29,   // shown in Cycle Summary: "29 Days"
-      averagePeriodLength: 4,   // shown in Cycle Summary: "4 Days"
+      averageCycleLength: CYCLE_LENGTH,
+      averagePeriodLength: PERIOD_LENGTH,
     });
     this.logger.log(`✅ User: ${user.name} (${user._id?.toString()})`);
 
-    // ── 2. Cycles: Aug, Sep, Oct 2025 ───────────────────────────────────
-    // Oct cycle: started Oct 3, period ended Oct 7 (4 days)
-    // Next period predicted: Oct 3 + 29 days = Nov 1 (shown as Nov 4 in UI, offset by +3)
-    const cycleRows = [
-      { start: '2025-08-05', end: '2025-08-09', length: 30, period: 4, label: 'Aug 2025' },
-      { start: '2025-09-04', end: '2025-09-08', length: 29, period: 4, label: 'Sep 2025' },
-      // Oct: startDate Oct 3 + 29 cycle = Nov 1; UI shows "Nov 4" so we use Oct 6 start
-      { start: '2025-10-06', end: '2025-10-10', length: 29, period: 4, label: 'Oct 2025' },
+    // ── 2. Cycles ────────────────────────────────────────────────────────
+    const cycleDefs = [
+      // Two cycles ago
+      {
+        startDate:           this.toISO(prev2CycleStart),
+        endDate:             this.toISO(prev2PeriodEnd),
+        cycleLength:         CYCLE_LENGTH,
+        periodLength:        PERIOD_LENGTH,
+        label:               this.toMonthLabel(prev2CycleStart),
+        estimatedNextPeriod: this.toISO(prevCycleStart),
+        ovulationStartDate:  this.toISO(prev2OvStart),
+        ovulationEndDate:    this.toISO(prev2OvEnd),
+      },
+      // Previous cycle
+      {
+        startDate:           this.toISO(prevCycleStart),
+        endDate:             this.toISO(prevPeriodEnd),
+        cycleLength:         CYCLE_LENGTH,
+        periodLength:        PERIOD_LENGTH,
+        label:               this.toMonthLabel(prevCycleStart),
+        estimatedNextPeriod: this.toISO(currentCycleStart),
+        ovulationStartDate:  this.toISO(prevOvStart),
+        ovulationEndDate:    this.toISO(prevOvEnd),
+      },
+      // Current cycle — no endDate (still ongoing)
+      {
+        startDate:           this.toISO(currentCycleStart),  // e.g. "2026-05-01"
+        endDate:             null,
+        cycleLength:         CYCLE_LENGTH,
+        periodLength:        PERIOD_LENGTH,
+        label:               this.toMonthLabel(currentCycleStart), // e.g. "May 2026"
+        estimatedNextPeriod: this.toISO(nextPeriodStart),    // e.g. "2026-05-30"
+        ovulationStartDate:  this.toISO(currentOvStart),     // e.g. "2026-05-12"
+        ovulationEndDate:    this.toISO(currentOvEnd),       // e.g. "2026-05-17"
+      },
     ];
 
     const cycles: CycleDocument[] = [];
-    for (const c of cycleRows) {
-      const cycle = await this.cycleModel.create({
-        userId: user._id,
-        startDate: c.start,
-        endDate: c.end,
-        cycleLength: c.length,
-        periodLength: c.period,
-        label: c.label,
-      });
+    for (const def of cycleDefs) {
+      const cycle = await this.cycleModel.create({ userId: user._id, ...def });
       cycles.push(cycle);
     }
     this.logger.log(`✅ Created ${cycles.length} cycles`);
 
-    const octCycle = cycles[2];
+    // ── 3. Current cycle logs (cycle start → today, one per day) ─────────
+    const currentCycle = cycles[2];
+    const dayCount = Math.floor(
+      (today.getTime() - currentCycleStart.getTime()) / 86400000,
+    ) + 1; // +1 includes today
 
-    // ── 3. Symptom logs — 12 daily entries matching the UI table ─────────
-    // UI table shows Oct 9th, 9th (x2), 9th, 9th, 9th, 9th, 9th, 9th, 9th, 10th, 10th
-    // with times "01:42 am", "01:45 am", etc., all top symptom "Physical Pain"
-    // scores: 8/10, 5/10, 7/10, 5/10, 8/10, 5/10, 7/10, 5/10, 4/10, 5/10, 5/10, 5/10
-    // note: "After lunch" for all
-    //
-    // We map this to distinct dates (the UI collapses same-day entries into rows).
-    const logs: Array<any> = [
-      // Period days (Oct 6-10) — heavy physical symptoms → Physical Pain dominates
-      {
-        date: '2025-10-06',
-        loggedAt: '2025-10-06T01:42:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Lower back pain', 'Nausea',
-                           'Breast tenderness', 'Abdominal pain', 'Water retention', 'Headache'],
-        moodSymptoms: ['Irritability', 'Sad', 'Low Motivation', 'Mood swings',
-                       'Tearfulness', 'Difficulty Concentrating'],
-        periodIndicators: ['Heavier flow'],
-        sexualHealthSymptoms: [],
-        flowIntensity: 8,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-07',
-        loggedAt: '2025-10-07T01:45:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Lower back pain', 'Nausea', 'Headache'],
-        moodSymptoms: ['Sad', 'Low Motivation', 'Mood swings'],
-        periodIndicators: ['Heavier flow'],
-        sexualHealthSymptoms: [],
-        flowIntensity: 7,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-08',
-        loggedAt: '2025-10-08T01:32:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Breast tenderness', 'Abdominal pain',
-                           'Nausea', 'Diarrhoea', 'Appetite changes'],
-        moodSymptoms: ['Mood swings', 'Irritability', 'Cravings', 'Tearfulness'],
-        periodIndicators: ['Lighter flow'],
-        sexualHealthSymptoms: [],
-        flowIntensity: 5,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-09',
-        loggedAt: '2025-10-09T01:18:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Lower back pain', 'Headache', 'Nausea'],
-        moodSymptoms: ['Irritability', 'Sad', 'Low Motivation', 'Mood swings'],
-        periodIndicators: ['Lighter flow'],
-        sexualHealthSymptoms: [],
-        flowIntensity: 5,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-10',
-        loggedAt: '2025-10-10T01:55:00.000Z',
-        physicalSymptoms: ['Breast tenderness', 'Fatigue', 'Abdominal pain',
-                           'Water retention', 'Nausea', 'Headache', 'Cramps', 'Pelvic pain'],
-        moodSymptoms: ['Mood swings', 'Irritability', 'Cravings'],
-        periodIndicators: ['Spotting'],
-        sexualHealthSymptoms: ['Decreased sex drive'],
-        flowIntensity: 4,
-        notes: 'After lunch',
-      },
-      // Post-period: lighter symptoms but Physical Pain still present
-      {
-        date: '2025-10-11',
-        loggedAt: '2025-10-11T01:42:00.000Z',
-        physicalSymptoms: ['Fatigue', 'Headache', 'Abdominal pain', 'Nausea', 'Cramps'],
-        moodSymptoms: ['Neutral', 'Low Motivation', 'Difficulty Concentrating'],
-        periodIndicators: [],
-        sexualHealthSymptoms: [],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-12',
-        loggedAt: '2025-10-12T01:30:00.000Z',
-        physicalSymptoms: ['Fatigue', 'Lower back pain', 'Headache', 'Cramps',
-                           'Nausea', 'Breast tenderness', 'Water retention'],
-        moodSymptoms: ['Sad', 'Tearfulness', 'Mood swings', 'Low Motivation'],
-        periodIndicators: [],
-        sexualHealthSymptoms: ['Decreased sex drive'],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-13',
-        loggedAt: '2025-10-13T01:42:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Nausea', 'Breast tenderness'],
-        moodSymptoms: ['Irritability', 'Cravings', 'Mood swings'],
-        periodIndicators: [],
-        sexualHealthSymptoms: [],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-14',
-        loggedAt: '2025-10-14T01:55:00.000Z',
-        physicalSymptoms: ['Water retention', 'Fatigue', 'Headache', 'Abdominal pain', 'Nausea'],
-        moodSymptoms: ['Cravings', 'Difficulty Concentrating', 'Low Motivation'],
-        periodIndicators: [],
-        sexualHealthSymptoms: [],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-15',
-        loggedAt: '2025-10-15T01:42:00.000Z',
-        physicalSymptoms: ['Cramps', 'Fatigue', 'Breast tenderness', 'Nausea', 'Headache'],
-        moodSymptoms: ['Mood swings', 'Irritability', 'Sad'],
-        periodIndicators: [],
-        sexualHealthSymptoms: ['Decreased sex drive'],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-16',
-        loggedAt: '2025-10-16T01:15:00.000Z',
-        physicalSymptoms: ['Abdominal pain', 'Fatigue', 'Lower back pain', 'Cramps', 'Nausea'],
-        moodSymptoms: ['Difficulty Concentrating', 'Low Motivation', 'Tearfulness'],
-        periodIndicators: [],
-        sexualHealthSymptoms: [],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-      {
-        date: '2025-10-17',
-        loggedAt: '2025-10-17T01:42:00.000Z',
-        physicalSymptoms: ['Breast tenderness', 'Fatigue', 'Headache', 'Cramps', 'Nausea'],
-        moodSymptoms: ['Low Motivation', 'Tearfulness', 'Mood swings'],
-        periodIndicators: [],
-        sexualHealthSymptoms: ['Decreased sex drive'],
-        flowIntensity: 0,
-        notes: 'After lunch',
-      },
-    ];
+    const flowMap: Record<number, number> = { 0: 8, 1: 7, 2: 5, 3: 3 };
 
-    for (const entry of logs) {
-      await this.logModel.create({
-        userId: user._id,
-        cycleId: octCycle._id,
-        ...entry,
-      });
-    }
-    this.logger.log(`✅ Created ${logs.length} symptom logs (Oct 2025)`);
+    for (let i = 0; i < dayCount; i++) {
+      const logDate     = this.addDays(currentCycleStart, i);
+      const isPeriod    = i < PERIOD_LENGTH;
+      const isOvulation = i >= OV_START_OFFSET && i <= OV_END_OFFSET;
 
-    // Also add a couple of logs to earlier cycles so stats work
-    const augCycle = cycles[0];
-    const sepCycle = cycles[1];
-    for (const [cycleDoc, date] of [[augCycle, '2025-08-06'], [sepCycle, '2025-09-05']] as const) {
-      await this.logModel.create({
-        userId: user._id,
-        cycleId: cycleDoc._id,
-        date,
-        physicalSymptoms: ['Cramps', 'Fatigue'],
-        moodSymptoms: ['Irritability'],
-        periodIndicators: ['Heavier flow'],
-        flowIntensity: 6,
+      await this.logModel.create(<any>{
+        userId:      user._id,
+        cycleId:     currentCycle._id,
+        date:        this.toISO(logDate),
+        loggedAt:    new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate(), 1, 42),
+
+        physicalSymptoms: isPeriod
+          ? this.pick(this.PHYSICAL_HEAVY, 5 + Math.floor(Math.random() * 3))
+          : this.pick(this.PHYSICAL_LIGHT, 2 + Math.floor(Math.random() * 3)),
+
+        moodSymptoms: isPeriod
+          ? this.pick(this.MOOD_HEAVY, 3 + Math.floor(Math.random() * 3))
+          : isOvulation
+            ? ['Happy', 'Neutral']
+            : this.pick(this.MOOD_LIGHT, 1 + Math.floor(Math.random() * 2)),
+
+        periodIndicators: isPeriod
+          ? [i <= 1 ? 'Heavier flow' : i <= 2 ? 'Lighter flow' : 'Spotting']
+          : [],
+
+        sexualHealthSymptoms: isPeriod
+          ? ['Decreased sex drive']
+          : Math.random() > 0.75 ? ['Decreased sex drive'] : [],
+
+        flowIntensity: isPeriod ? (flowMap[i] ?? 2) : 0,
         notes: 'After lunch',
       });
     }
+    this.logger.log(`✅ Created ${dayCount} logs for current cycle`);
 
-    this.logger.log('🌱 Seed complete!');
+    // ── 4. Period logs for previous cycles ────────────────────────────────
+    for (const [cycleDoc, cycleStart] of [
+      [cycles[1], prevCycleStart],
+      [cycles[0], prev2CycleStart],
+    ] as const) {
+      for (let i = 0; i < PERIOD_LENGTH; i++) {
+        const logDate = this.addDays(cycleStart, i);
+        await this.logModel.create(<any>{
+          userId:              user._id,
+          cycleId:             cycleDoc._id,
+          date:                this.toISO(logDate),
+          loggedAt:            new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate(), 1, 42),
+          physicalSymptoms:    this.pick(this.PHYSICAL_HEAVY, 4 + Math.floor(Math.random() * 3)),
+          moodSymptoms:        this.pick(this.MOOD_HEAVY, 2 + Math.floor(Math.random() * 3)),
+          periodIndicators:    [i <= 1 ? 'Heavier flow' : 'Lighter flow'],
+          sexualHealthSymptoms: i === 0 ? ['Decreased sex drive'] : [],
+          flowIntensity:       [8, 7, 5, 3][i] ?? 2,
+          notes:               'After lunch',
+        });
+      }
+    }
+
+    this.logger.log('🌸 Seed complete!');
 
     return {
-      message: 'Database seeded successfully — matches Health Report UI',
+      message: 'Database seeded successfully with dynamic dates',
+      seedDate: this.toISO(today),
       userId: user._id?.toString(),
-      cycles: cycles.map((c) => ({ id: c._id?.toString(), label: c.label })),
-      logCount: logs.length + 2,
+      cycles: cycles.map((c) => ({
+        id:                  c._id?.toString(),
+        label:               c.label,
+        startDate:           c.startDate,
+        endDate:             c.endDate,
+        estimatedNextPeriod: c.estimatedNextPeriod,
+        ovulationStartDate:  c.ovulationStartDate,
+        ovulationEndDate:    c.ovulationEndDate,
+      })),
+      currentCycle: {
+        label:             this.toMonthLabel(currentCycleStart),
+        startDate:         this.toISO(currentCycleStart),
+        periodEnds:        this.toISO(currentPeriodEnd),
+        ovulationWindow:   `${this.toISO(currentOvStart)} – ${this.toISO(currentOvEnd)}`,
+        nextPeriod:        this.toISO(nextPeriodStart),
+        logsCreated:       dayCount,
+      },
     };
   }
 }
