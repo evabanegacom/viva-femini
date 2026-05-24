@@ -6,6 +6,7 @@ import { CyclesModule } from './cycles/cycles.module';
 import { SymptomsModule } from './symptoms/symptoms.module';
 import { HealthReportModule } from './health-report/health-report.module';
 import { SeedModule } from './seed/seed.module';
+import { TrackingModule } from './tracking/tracking.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { SeedModule } from './seed/seed.module';
     SymptomsModule,
     HealthReportModule,
     SeedModule,
+    TrackingModule,
   ],
 })
 export class AppModule {}
